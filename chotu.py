@@ -1,5 +1,5 @@
 # ---------------------------
-# Demand Forecasting Dashboard (Menu-driven)
+# Demand Forecasting Dashboard
 # ---------------------------
 
 import streamlit as st
@@ -17,7 +17,7 @@ import plotly.graph_objs as go
 # App Config
 # ---------------------------
 st.set_page_config(page_title="Demand Forecasting", layout="wide")
-st.title("📊 Demand Forecasting Dashboard")
+st.title("📊 Demand Forecasting Dashboard (All SKUs Combined)")
 
 # ---------------------------
 # Load Data
@@ -34,15 +34,17 @@ st.sidebar.subheader("Navigation")
 menu = st.sidebar.radio("Go to section:", ["Data Cleaning", "Demand Data Analysis", "Forecasting"])
 
 # ---------------------------
-# SKU Filter
+# Preprocess (combine SKUs)
 # ---------------------------
-sku_list = data['sku_id'].unique()
-selected_sku = st.sidebar.selectbox("Select SKU to forecast:", sku_list)
-filtered_data = data[data['sku_id'] == selected_sku]
+data['week'] = pd.to_datetime(data['week'], format='%d/%m/%y')
 
-# Convert week to datetime
-filtered_data['week'] = pd.to_datetime(filtered_data['week'], format='%d/%m/%y')
-filtered_data.set_index('week', inplace=True)
+# Aggregate units_sold & price across all SKUs
+combined_data = data.groupby('week').agg({
+    'units_sold': 'sum',
+    'total_price': 'mean'   # using avg price across SKUs
+}).reset_index()
+
+combined_data.set_index('week', inplace=True)
 
 # ---------------------------
 # 1️⃣ Data Cleaning
@@ -50,39 +52,38 @@ filtered_data.set_index('week', inplace=True)
 if menu == "Data Cleaning":
     st.header("🧹 Data Cleaning")
     
-    # Missing values
-    missing_count = filtered_data.isnull().sum().sum()
+    missing_count = combined_data.isnull().sum().sum()
     st.write(f"Total Missing Values: {missing_count}")
     
-    if filtered_data['total_price'].isnull().sum() > 0:
-        median_price_per_sku = filtered_data.groupby('sku_id')['total_price'].median()
-        filtered_data['total_price'].fillna(filtered_data['sku_id'].map(median_price_per_sku), inplace=True)
-        st.success("Missing 'total_price' values filled with median per SKU.")
+    if combined_data['total_price'].isnull().sum() > 0:
+        median_price = combined_data['total_price'].median()
+        combined_data['total_price'].fillna(median_price, inplace=True)
+        st.success("Missing 'total_price' values filled with median.")
     else:
         st.info("No missing 'total_price' values found.")
     
     st.write("✅ Data cleaned and ready for analysis.")
+    st.dataframe(combined_data.head())
 
 # ---------------------------
 # 2️⃣ Demand Data Analysis
 # ---------------------------
 elif menu == "Demand Data Analysis":
-    st.header("📊 Demand Data Analysis")
+    st.header("📊 Demand Data Analysis (All SKUs Combined)")
     
-    # Weekly aggregation
-    weekly_data = filtered_data['units_sold'].resample('W').sum()
-    st.subheader(f"Weekly Units Sold for SKU {selected_sku}")
-    st.line_chart(weekly_data)
-
-    # Boxplot
+    # Weekly Demand Plot
+    st.subheader("Weekly Units Sold")
+    st.line_chart(combined_data['units_sold'])
+    
+    # Boxplot of Price
     st.subheader("Price Distribution")
     fig, ax = plt.subplots(figsize=(6,3))
-    sns.boxplot(x=filtered_data['total_price'], ax=ax)
+    sns.boxplot(x=combined_data['total_price'], ax=ax)
     st.pyplot(fig)
-
+    
     # Correlation Heatmap
     st.subheader("Correlation Heatmap")
-    corr = filtered_data.corr()
+    corr = combined_data.corr()
     fig, ax = plt.subplots(figsize=(6,3))
     sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax)
     st.pyplot(fig)
@@ -91,11 +92,11 @@ elif menu == "Demand Data Analysis":
 # 3️⃣ Forecasting
 # ---------------------------
 elif menu == "Forecasting":
-    st.header("🤖 Forecasting Models")
+    st.header("🤖 Forecasting Models (All SKUs Combined)")
     
-    weekly_data = filtered_data['units_sold'].resample('W').sum()
+    weekly_data = combined_data['units_sold']
     
-    # Split train/test
+    # Train/Test Split
     train_data = weekly_data[:int(0.8*len(weekly_data))]
     test_data = weekly_data[int(0.8*len(weekly_data)):]
     
