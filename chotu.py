@@ -1,4 +1,4 @@
-import streamlit as st
+import streamlit as st 
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -39,7 +39,7 @@ if uploaded_file:
         
         # Convert 'week' column to datetime
         st.write("Converting `week` column to datetime format and setting it as index...")
-        data['week'] = pd.to_datetime(data['week'], format='%d/%m/%y')
+        data['week'] = pd.to_datetime(data['week'], format='%d/%m/%y', errors='coerce')
         data.set_index('week', inplace=True)
         st.success("✅ Data cleaning and preprocessing completed.")
 
@@ -47,7 +47,7 @@ if uploaded_file:
         st.subheader("🔎 Exploratory Data Analysis (EDA)")
 
         # Ensure 'week' is datetime
-        data['week'] = pd.to_datetime(data['week'], format='%d/%m/%y')
+        data['week'] = pd.to_datetime(data['week'], format='%d/%m/%y', errors='coerce')
         data.set_index('week', inplace=True)
 
         # Weekly aggregation
@@ -55,15 +55,23 @@ if uploaded_file:
         st.write("Weekly aggregated units sold:")
         st.line_chart(weekly_data)
 
-        # Boxplot for total_price
+        # Boxplot for total_price (cleaned)
         st.write("Distribution of `total_price`:")
-        fig, ax = plt.subplots(figsize=(10, 4))
-        sns.boxplot(x=data['total_price'], ax=ax)
-        st.pyplot(fig)
+
+        # Ensure numeric values only
+        data['total_price'] = pd.to_numeric(data['total_price'], errors='coerce')
+        clean_prices = data['total_price'].dropna()
+
+        if clean_prices.empty:
+            st.warning("⚠️ No valid `total_price` values available for plotting.")
+        else:
+            fig, ax = plt.subplots(figsize=(10, 4))
+            sns.boxplot(x=clean_prices, ax=ax)
+            st.pyplot(fig)
 
         # Correlation heatmap
         st.write("Correlation Heatmap:")
-        corr = data.corr()
+        corr = data.corr(numeric_only=True)   # avoid issues with non-numeric cols
         fig, ax = plt.subplots(figsize=(8, 6))
         sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax)
         st.pyplot(fig)
@@ -72,7 +80,7 @@ if uploaded_file:
         st.subheader("🤖 Forecasting Models")
 
         # Prepare weekly data
-        data['week'] = pd.to_datetime(data['week'], format='%d/%m/%y')
+        data['week'] = pd.to_datetime(data['week'], format='%d/%m/%y', errors='coerce')
         data.set_index('week', inplace=True)
         weekly_data = data['units_sold'].resample('W').sum()
 
