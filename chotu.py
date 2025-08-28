@@ -1,96 +1,102 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.arima.model import ARIMA
+from prophet import Prophet
+from sklearn.metrics import mean_squared_error
+from math import sqrt
+import plotly.graph_objs as go
 
-# ----------------------------
-# Load Data
-# ----------------------------
-@st.cache_data
-def load_data():
-    # Make sure "aemana.csv" is in the same repo/folder as your Streamlit app
-    data = pd.read_csv("demand.csv")
-    return data
+# ---------------------------
+# Streamlit App
+# ---------------------------
+st.set_page_config(page_title="Demand Forecasting", layout="wide")
+st.title("📊 Demand Forecasting Dashboard")
 
-# ----------------------------
-# Main App
-# ----------------------------
-def main():
-    st.title("📊 Demand Forecasting App")
+# File uploader
+uploaded_file = st.file_uploader("Upload your demand.csv file", type=["csv"])
 
-    menu = ["Data Cleaning", "Demand Analysis", "Forecasting"]
-    choice = st.sidebar.radio("Choose Section", menu)
+if uploaded_file:
+    # Load dataset
+    data = pd.read_csv(uploaded_file)
+    st.subheader("Raw Data Preview")
+    st.dataframe(data.head())
 
-    # Load data
-    data = load_data()
+    # Handle missing values
+    if data['total_price'].isnull().sum() > 0:
+        median_price_per_sku = data.groupby('sku_id')['total_price'].median()
+        data['total_price'].fillna(data['sku_id'].map(median_price_per_sku), inplace=True)
 
-    # ========================
-    # Data Cleaning Section
-    # ========================
-    if choice == "Data Cleaning":
-        st.subheader("🧹 Data Cleaning")
+    # Convert week column
+    data['week'] = pd.to_datetime(data['week'], format='%d/%m/%y')
+    data.set_index('week', inplace=True)
 
-        st.write("Raw Data Preview:")
-        st.dataframe(data.head())
+    # Weekly aggregation
+    weekly_data = data['units_sold'].resample('W').sum()
+    st.subheader("📈 Weekly Units Sold")
+    st.line_chart(weekly_data)
 
-        # Basic cleaning
-        data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
-        data = data.dropna(subset=["Date"])
-        
-        st.write("✅ After cleaning (Date column fixed & NaN removed):")
-        st.dataframe(data.head())
+    # ----------- EDA -----------
+    st.subheader("🔎 Exploratory Data Analysis")
 
-    # ========================
-    # Demand Analysis Section
-    # ========================
-    elif choice == "Demand Analysis":
-        st.subheader("📈 Demand Data Analysis")
+    fig, ax = plt.subplots(figsize=(10, 4))
+    sns.boxplot(x=data['total_price'], ax=ax)
+    st.pyplot(fig)
 
-        # Convert to datetime
-        data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
-        data = data.dropna(subset=["Date"])
+    corr = data.corr()
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax)
+    st.pyplot(fig)
 
-        # Combine all SKUs by summing Demand
-        demand_data = data.groupby("Date")["Demand"].sum().reset_index()
+    # ----------- Forecasting Models -----------
+    st.subheader("🤖 Forecasting Models")
 
-        st.line_chart(demand_data.set_index("Date")["Demand"])
+    # Train-test split
+    train_data = weekly_data[:int(0.8*len(weekly_data))]
+    test_data = weekly_data[int(0.8*len(weekly_data)):]
 
-        st.write("Total demand over time (all SKUs combined).")
+    # Holt-Winters
+    hw_model = ExponentialSmoothing(train_data, seasonal='add', seasonal_periods=52).fit()
+    hw_predictions = hw_model.predict(start=test_data.index[0], end=test_data.index[-1])
+    hw_rmse = sqrt(mean_squared_error(test_data, hw_predictions))
 
-    # ========================
-    # Forecasting Section
-    # ========================
-    elif choice == "Forecasting":
-        st.subheader("🔮 Forecasting Demand")
+    # ARIMA
+    arima_model = ARIMA(train_data, order=(1, 0, 0)).fit()
+    arima_predictions = arima_model.predict(start=test_data.index[0], end=test_data.index[-1])
+    arima_rmse = sqrt(mean_squared_error(test_data, arima_predictions))
 
-        # Prepare data
-        data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
-        demand_data = data.groupby("Date")["Demand"].sum().reset_index()
-        demand_data = demand_data.set_index("Date")
+    # Prophet
+    prophet_data = weekly_data.reset_index()
+    prophet_data.columns = ['ds', 'y']
+    train_prophet = prophet_data[:int(0.8*len(prophet_data))]
+    test_prophet = prophet_data[int(0.8*len(prophet_data)):]
+    prophet_model = Prophet(yearly_seasonality=True)
+    prophet_model.fit(train_prophet)
+    future = prophet_model.make_future_dataframe(periods=len(test_prophet))
+    prophet_predictions = prophet_model.predict(future)
+    prophet_rmse = sqrt(mean_squared_error(test_prophet['y'], prophet_predictions['yhat'][-len(test_prophet):]))
 
-        # Holt-Winters
-        model_hw = ExponentialSmoothing(demand_data["Demand"], trend="add", seasonal=None).fit()
-        forecast_hw = model_hw.forecast(10)
+    # Display RMSE
+    st.write(f"**Holt-Winters RMSE:** {hw_rmse:.2f}")
+    st.write(f"**ARIMA RMSE:** {arima_rmse:.2f}")
+    st.write(f"**Prophet RMSE:** {prophet_rmse:.2f}")
 
-        # ARIMA
-        model_arima = ARIMA(demand_data["Demand"], order=(2,1,2)).fit()
-        forecast_arima = model_arima.forecast(10)
+    # Best Model
+    rmse_values = [hw_rmse, arima_rmse, prophet_rmse]
+    model_names = ['Holt-Winters', 'ARIMA', 'Prophet']
+    best_model = model_names[rmse_values.index(min(rmse_values))]
+    st.success(f"✅ The best model is: {best_model}")
 
-        # Plot
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(demand_data.index, demand_data["Demand"], label="Actual")
-        ax.plot(forecast_hw.index, forecast_hw, label="Holt-Winters Forecast")
-        ax.plot(forecast_arima.index, forecast_arima, label="ARIMA Forecast")
-        ax.legend()
-        st.pyplot(fig)
+    # ----------- Plot Forecasts -----------
+    st.subheader("📊 Forecast Comparison")
 
-        st.write("Forecast Results:")
-        st.write(pd.DataFrame({
-            "Holt-Winters": forecast_hw,
-            "ARIMA": forecast_arima
-        }))
-
-# Run app
-if __name__ == "__main__":
-    main()
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=weekly_data.index, y=weekly_data, mode="lines", name="Actual"))
+    fig.add_trace(go.Scatter(x=hw_predictions.index, y=hw_predictions, mode="lines", name="Holt-Winters"))
+    fig.add_trace(go.Scatter(x=arima_predictions.index, y=arima_predictions, mode="lines", name="ARIMA"))
+    fig.add_trace(go.Scatter(x=prophet_predictions['ds'], y=prophet_predictions['yhat'], mode="lines", name="Prophet"))
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("👆 Please upload a `demand.csv` file to start analysis.")
