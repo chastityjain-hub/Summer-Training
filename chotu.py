@@ -1,4 +1,3 @@
-
 # app.py
 
 import streamlit as st
@@ -13,24 +12,53 @@ from math import sqrt
 import plotly.graph_objs as go
 
 # ---------------------------
-# Streamlit App
+# Streamlit Page Config
 # ---------------------------
-st.set_page_config(page_title="Demand Forecasting", layout="wide")
+st.set_page_config(page_title="Demand Forecasting Dashboard", layout="wide")
 st.title("📊 Demand Forecasting Dashboard")
 
-# File uploader
-uploaded_file = st.file_uploader("Upload your demand.csv file", type=["csv"])
+# ---------------------------
+# Load Data (direct from repo demand.csv)
+# ---------------------------
+@st.cache_data
+def load_data():
+    df = pd.read_csv("demand.csv")
+    return df
 
-if uploaded_file:
-    # Load dataset
-    data = pd.read_csv(uploaded_file)
-    st.subheader("Raw Data Preview")
+data = load_data()
+
+# Sidebar navigation
+menu = st.sidebar.selectbox(
+    "Choose Section",
+    ["📌 Data Cleaning & Preprocessing", "🔎 Exploratory Data Analysis", "🤖 Forecasting Models"]
+)
+
+# ---------------------------
+# Data Cleaning & Preprocessing
+# ---------------------------
+if menu == "📌 Data Cleaning & Preprocessing":
+    st.header("📌 Data Cleaning & Preprocessing")
+
+    st.subheader("Missing Values Before Cleaning")
+    st.write(data.isnull().sum())
+
+    # Fill missing values for total_price
+    median_price_per_sku = data.groupby('sku_id')['total_price'].median()
+    data['total_price'].fillna(data['sku_id'].map(median_price_per_sku), inplace=True)
+
+    st.subheader("✅ Missing Values After Cleaning")
+    st.write(data.isnull().sum())
+
+    st.success("Data has been cleaned! Missing values handled using median per SKU.")
+
+    st.subheader("Preview of Cleaned Data")
     st.dataframe(data.head())
 
-    # Handle missing values
-    if data['total_price'].isnull().sum() > 0:
-        median_price_per_sku = data.groupby('sku_id')['total_price'].median()
-        data['total_price'].fillna(data['sku_id'].map(median_price_per_sku), inplace=True)
+# ---------------------------
+# EDA Section
+# ---------------------------
+elif menu == "🔎 Exploratory Data Analysis":
+    st.header("🔎 Exploratory Data Analysis (EDA)")
 
     # Convert week column
     data['week'] = pd.to_datetime(data['week'], format='%d/%m/%y')
@@ -38,23 +66,35 @@ if uploaded_file:
 
     # Weekly aggregation
     weekly_data = data['units_sold'].resample('W').sum()
-    st.subheader("📈 Weekly Units Sold")
+
+    st.subheader("📈 Weekly Units Sold Over Time")
     st.line_chart(weekly_data)
 
-    # ----------- EDA -----------
-    st.subheader("🔎 Exploratory Data Analysis")
-
+    st.subheader("📊 Distribution of Total Price")
     fig, ax = plt.subplots(figsize=(10, 4))
-    sns.boxplot(x=data['total_price'], ax=ax)
+    sns.boxplot(x=data['total_price'], ax=ax, color="skyblue")
     st.pyplot(fig)
 
+    st.subheader("🔥 Correlation Heatmap")
     corr = data.corr()
     fig, ax = plt.subplots(figsize=(8, 6))
     sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax)
     st.pyplot(fig)
 
-    # ----------- Forecasting Models -----------
-    st.subheader("🤖 Forecasting Models")
+    st.info("Observations: Featured or displayed SKUs sell more. Lower-priced items tend to sell in higher quantities.")
+
+# ---------------------------
+# Forecasting Models Section
+# ---------------------------
+elif menu == "🤖 Forecasting Models":
+    st.header("🤖 Forecasting Models")
+
+    # Convert week column if not already
+    data['week'] = pd.to_datetime(data['week'], format='%d/%m/%y')
+    data.set_index('week', inplace=True)
+
+    # Weekly aggregation
+    weekly_data = data['units_sold'].resample('W').sum()
 
     # Train-test split
     train_data = weekly_data[:int(0.8*len(weekly_data))]
@@ -81,25 +121,24 @@ if uploaded_file:
     prophet_predictions = prophet_model.predict(future)
     prophet_rmse = sqrt(mean_squared_error(test_prophet['y'], prophet_predictions['yhat'][-len(test_prophet):]))
 
-    # Display RMSE
-    st.write(f"**Holt-Winters RMSE:** {hw_rmse:.2f}")
-    st.write(f"**ARIMA RMSE:** {arima_rmse:.2f}")
-    st.write(f"**Prophet RMSE:** {prophet_rmse:.2f}")
+    # Show RMSEs
+    st.subheader("📊 Model Evaluation (RMSE)")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Holt-Winters RMSE", f"{hw_rmse:.2f}")
+    col2.metric("ARIMA RMSE", f"{arima_rmse:.2f}")
+    col3.metric("Prophet RMSE", f"{prophet_rmse:.2f}")
 
     # Best Model
     rmse_values = [hw_rmse, arima_rmse, prophet_rmse]
     model_names = ['Holt-Winters', 'ARIMA', 'Prophet']
     best_model = model_names[rmse_values.index(min(rmse_values))]
-    st.success(f"✅ The best model is: {best_model}")
+    st.success(f"🏆 The best model is: **{best_model}**")
 
-    # ----------- Plot Forecasts -----------
-    st.subheader("📊 Forecast Comparison")
-
+    # Forecast Comparison Plot
+    st.subheader("🔮 Forecast Comparison")
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=weekly_data.index, y=weekly_data, mode="lines", name="Actual"))
     fig.add_trace(go.Scatter(x=hw_predictions.index, y=hw_predictions, mode="lines", name="Holt-Winters"))
     fig.add_trace(go.Scatter(x=arima_predictions.index, y=arima_predictions, mode="lines", name="ARIMA"))
     fig.add_trace(go.Scatter(x=prophet_predictions['ds'], y=prophet_predictions['yhat'], mode="lines", name="Prophet"))
     st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("👆 Please upload a `demand.csv` file to start analysis.")
