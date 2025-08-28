@@ -1,8 +1,7 @@
 # ---------------------------
-# Demand Forecasting Dashboard
+# Demand Forecasting Dashboard (Menu-driven)
 # ---------------------------
 
-# Import libraries
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -15,7 +14,7 @@ from math import sqrt
 import plotly.graph_objs as go
 
 # ---------------------------
-# Streamlit App Config
+# App Config
 # ---------------------------
 st.set_page_config(page_title="Demand Forecasting", layout="wide")
 st.title("📊 Demand Forecasting Dashboard")
@@ -28,36 +27,33 @@ uploaded_file = st.file_uploader("Upload your demand.csv file (optional)", type=
 if uploaded_file:
     data = pd.read_csv(uploaded_file)
 else:
-    # Read directly from GitHub
-    url = "https://raw.githubusercontent.com/username/repo/main/demand.csv"  # <-- Replace with your GitHub raw URL
+    url = "https://raw.githubusercontent.com/username/repo/main/demand.csv"  # 🔹 replace with your GitHub raw file URL
     data = pd.read_csv(url)
 
-st.subheader("Raw Data Preview")
-st.dataframe(data.head())
+st.sidebar.subheader("Navigation")
+menu = st.sidebar.radio("Go to section:", ["Data Cleaning", "Demand Data Analysis", "Forecasting"])
 
 # ---------------------------
 # SKU Filter
 # ---------------------------
 sku_list = data['sku_id'].unique()
-selected_sku = st.selectbox("Select SKU to forecast:", sku_list)
+selected_sku = st.sidebar.selectbox("Select SKU to forecast:", sku_list)
 filtered_data = data[data['sku_id'] == selected_sku]
 
-# ---------------------------
-# Columns Layout for Sections
-# ---------------------------
-col1, col2, col3 = st.columns(3)
+# Convert week to datetime
+filtered_data['week'] = pd.to_datetime(filtered_data['week'], format='%d/%m/%y')
+filtered_data.set_index('week', inplace=True)
 
 # ---------------------------
 # 1️⃣ Data Cleaning
 # ---------------------------
-with col1:
+if menu == "Data Cleaning":
     st.header("🧹 Data Cleaning")
     
-    # Check for missing values
+    # Missing values
     missing_count = filtered_data.isnull().sum().sum()
     st.write(f"Total Missing Values: {missing_count}")
     
-    # Fill missing 'total_price' if any
     if filtered_data['total_price'].isnull().sum() > 0:
         median_price_per_sku = filtered_data.groupby('sku_id')['total_price'].median()
         filtered_data['total_price'].fillna(filtered_data['sku_id'].map(median_price_per_sku), inplace=True)
@@ -65,38 +61,39 @@ with col1:
     else:
         st.info("No missing 'total_price' values found.")
     
-    # Convert week to datetime
-    filtered_data['week'] = pd.to_datetime(filtered_data['week'], format='%d/%m/%y')
-    filtered_data.set_index('week', inplace=True)
-    st.write("✅ Date column converted and set as index.")
+    st.write("✅ Data cleaned and ready for analysis.")
 
 # ---------------------------
-# 2️⃣ Demand Data Analysis (EDA)
+# 2️⃣ Demand Data Analysis
 # ---------------------------
-with col2:
+elif menu == "Demand Data Analysis":
     st.header("📊 Demand Data Analysis")
-
+    
     # Weekly aggregation
     weekly_data = filtered_data['units_sold'].resample('W').sum()
     st.subheader(f"Weekly Units Sold for SKU {selected_sku}")
     st.line_chart(weekly_data)
 
     # Boxplot
-    fig, ax = plt.subplots(figsize=(5, 3))
+    st.subheader("Price Distribution")
+    fig, ax = plt.subplots(figsize=(6,3))
     sns.boxplot(x=filtered_data['total_price'], ax=ax)
     st.pyplot(fig)
 
-    # Correlation heatmap
+    # Correlation Heatmap
+    st.subheader("Correlation Heatmap")
     corr = filtered_data.corr()
-    fig, ax = plt.subplots(figsize=(5, 3))
+    fig, ax = plt.subplots(figsize=(6,3))
     sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax)
     st.pyplot(fig)
 
 # ---------------------------
-# 3️⃣ Forecasting Data
+# 3️⃣ Forecasting
 # ---------------------------
-with col3:
+elif menu == "Forecasting":
     st.header("🤖 Forecasting Models")
+    
+    weekly_data = filtered_data['units_sold'].resample('W').sum()
     
     # Split train/test
     train_data = weekly_data[:int(0.8*len(weekly_data))]
