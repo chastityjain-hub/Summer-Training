@@ -27,7 +27,7 @@ data = load_data()
 
 # Sidebar menu for navigation
 menu = ["Data Cleaning / Preprocessing", "Data Analysis", "Forecasting"]
-choice = st.sidebar.selectbox("Select Analysis Section", menu)
+choice = st.sidebar.selectbox("Choose Page", menu)
 
 # ---------------------------
 # Data Cleaning & Preprocessing
