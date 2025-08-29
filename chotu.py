@@ -67,6 +67,22 @@ elif choice == "Data Analysis":
     st.write("Weekly aggregated units sold:")
     st.line_chart(weekly_data)
 
+    # ✅ ADD DECOMPOSITION CHART AFTER 1ST CHART
+    from statsmodels.tsa.seasonal import seasonal_decompose
+
+    st.write("Seasonal Decomposition of Weekly Units Sold:")
+    decomposition = seasonal_decompose(weekly_data, model='additive', period=52)
+
+    fig, axs = plt.subplots(4, 1, figsize=(12, 10))
+
+    decomposition.trend.plot(ax=axs[0], legend=True, title="Trend")
+    decomposition.seasonal.plot(ax=axs[1], legend=True, title="Seasonality")
+    decomposition.resid.plot(ax=axs[2], legend=True, title="Residuals")
+    weekly_data.plot(ax=axs[3], legend=True, title="Original")
+
+    plt.tight_layout()
+    st.pyplot(fig)
+
     # Boxplot for total_price
     st.write("Distribution of `total_price`:")
     data['total_price'] = pd.to_numeric(data['total_price'], errors='coerce')
@@ -87,6 +103,7 @@ elif choice == "Data Analysis":
     st.pyplot(fig)
 
     st.info("💡 Observations: Featured or displayed SKUs sell more. Lower-priced items tend to sell in higher quantities.")
+
 
 # ---------------------------
 # Forecasting Section
